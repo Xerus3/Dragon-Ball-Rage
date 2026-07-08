@@ -1,0 +1,189 @@
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Zenkai stat requirements (all stats must meet this value to rebirth TO the next level)
+-- Index = current zenkai level, Value = required stats to advance from this level
+local ZenkaiRequirements = {
+    -- Normal Zenkai Levels (1-45)
+    [1]  = 750000,      -- Need 750k all stats to go from Zenkai 1 → 2
+    [2]  = 1500000,     -- Need 1.5m all stats to go from Zenkai 2 → 3
+    [3]  = 3500000,
+    [4]  = 5500000,
+    [5]  = 9000000,
+    [6]  = 14000000,
+    [7]  = 20000000,
+    [8]  = 30000000,
+    [9]  = 42000000,
+    [10] = 55000000,
+    [11] = 60000000,
+    [12] = 67000000,
+    [13] = 69000000,
+    [14] = 71000000,
+    [15] = 73000000,
+    [16] = 75000000,
+    [17] = 77000000,
+    [18] = 79000000,
+    [19] = 81000000,
+    [20] = 83000000,
+    [21] = 85000000,
+    [22] = 87000000,
+    [23] = 89000000,
+    [24] = 91000000,
+    [25] = 93000000,
+    [26] = 95000000,
+    [27] = 97000000,
+    [28] = 99000000,
+    [29] = 101000000,
+    [30] = 103000000,
+    [31] = 105000000,
+    [32] = 109000000,
+    [33] = 113000000,
+    [34] = 117000000,
+    [35] = 121000000,
+    [36] = 125000000,
+    [37] = 129000000,
+    [38] = 133000000,
+    [39] = 139000000,
+    [40] = 141000000,
+    [41] = 145000000,
+    [42] = 149000000,
+    [43] = 153000000,
+    [44] = 157000000,
+    [45] = 161000000,
+    
+    -- Dragon Balls Zenkai (46-50)
+    [46] = 255000000,
+    [47] = 265000000,
+    [48] = 275000000,
+    [49] = 285000000,
+    [50] = 295000000,
+}
+
+-- Max zenkai level (no rebirth possible beyond this)
+local MAX_ZENKAI = 50
+
+-- Stat folder paths
+local StatPaths = {
+    Attack  = LocalPlayer:WaitForChild("Stats"):WaitForChild("Attack"),
+    Agility = LocalPlayer:WaitForChild("Stats"):WaitForChild("Agility"),
+    Defense = LocalPlayer:WaitForChild("Stats"):WaitForChild("Defense"),
+    Ki      = LocalPlayer:WaitForChild("Stats"):WaitForChild("Ki"),
+}
+
+-- Get current zenkai level from player
+local function GetCurrentZenkai()
+    -- Adjust this path based on where your game stores zenkai
+    local zenkaiValue = LocalPlayer:FindFirstChild("Zenkai")
+    if zenkaiValue and zenkaiValue:IsA("IntValue") then
+        return zenkaiValue.Value
+    end
+    
+    -- Alternative: check leaderstats or other locations
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    if leaderstats then
+        local zenkaiStat = leaderstats:FindFirstChild("Zenkai")
+        if zenkaiStat then
+            return zenkaiStat.Value
+        end
+    end
+    
+    return 1 -- Default fallback
+end
+
+-- Get all current stat values
+local function GetCurrentStats()
+    return {
+        Attack  = StatPaths.Attack.Value,
+        Agility = StatPaths.Agility.Value,
+        Defense = StatPaths.Defense.Value,
+        Ki      = StatPaths.Ki.Value,
+    }
+end
+
+-- Check if player can rebirth from CURRENT zenkai level
+-- Returns: canRebirth (bool), currentZenkai, requiredForNext, statsTable, failingStatName, failingStatValue
+local function CanRebirth()
+    local currentZenkai = GetCurrentZenkai()
+    
+    -- Max zenkai check
+    if currentZenkai >= MAX_ZENKAI then
+        return false, currentZenkai, nil, nil, "MaxZenkai", currentZenkai
+    end
+    
+    -- Get requirement for NEXT zenkai level
+    local required = ZenkaiRequirements[currentZenkai]
+    if not required then
+        return false, currentZenkai, nil, nil, "NoRequirement", currentZenkai
+    end
+    
+    local stats = GetCurrentStats()
+    
+    -- Check ALL stats meet requirement for current zenkai
+    for statName, statValue in pairs(stats) do
+        if statValue < required then
+            -- This stat hasn't reached the requirement yet
+            return false, currentZenkai, required, stats, statName, statValue
+        end
+    end
+    
+    -- All stats meet requirement — ready to rebirth to next zenkai
+    return true, currentZenkai, required, stats, nil, nil
+end
+
+-- Get progress toward next rebirth
+-- Returns: percentComplete, amountNeeded, currentZenkai, required, lowestStatName, lowestStatValue
+local function GetRebirthProgress()
+    local canRebirth, currentZenkai, required, stats, failStat, failValue = CanRebirth()
+    
+    if not required then
+        return 100, 0, currentZenkai, nil, nil, nil -- Max zenkai
+    end
+    
+    if canRebirth then
+        return 100, 0, currentZenkai, required, nil, nil -- Ready to rebirth
+    end
+    
+    -- Calculate progress based on the failing stat
+    local percent = math.clamp((failValue / required) * 100, 0, 100)
+    local needed = required - failValue
+    
+    return percent, needed, currentZenkai, required, failStat, failValue
+end
+
+-- Get next zenkai info for display
+local function GetNextZenkaiInfo()
+    local currentZenkai = GetCurrentZenkai()
+    
+    if currentZenkai >= MAX_ZENKAI then
+        return nil, nil, true -- Maxed out
+    end
+    
+    local nextZenkai = currentZenkai + 1
+    local required = ZenkaiRequirements[currentZenkai]
+    local nextRequired = ZenkaiRequirements[nextZenkai]
+    
+    return nextZenkai, required, false, nextRequired
+end
+
+-- Example usage for auto-rebirth logic:
+--[[
+while _G.AutoRebirthActive do
+    local canRebirth, currentZenkai, required, stats, failStat, failValue = CanRebirth()
+    
+    if canRebirth then
+        print("Zenkai " .. currentZenkai .. " complete! All stats ≥ " .. required)
+        print("Rebirthing to Zenkai " .. (currentZenkai + 1) .. "...")
+        -- Fire rebirth remote here
+        -- RebirthRemote:FireServer()
+    else
+        if failStat then
+            print("Zenkai " .. currentZenkai .. " — need " .. required .. " all stats")
+            print(failStat .. " is lowest at " .. failValue .. " (need " .. (required - failValue) .. " more)")
+        else
+            print("Max zenkai reached or requirement not found")
+        end
+    end
+    
+    task.wait(1)
+end
+--]]
