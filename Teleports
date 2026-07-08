@@ -6,10 +6,19 @@ local TeleportModule = {}
 
 -- WORLD IDs
 TeleportModule.Worlds = {
-    Earth = {
-        Name = "Earth",
-        PlaceId = 71315343,
-    },
+Earth = {
+    Name = "Earth",
+    PlaceId = 71315343,
+},
+GravityChamber = {
+    Name = "Gravity Chamber",
+    PlaceId = 9428127281,
+},
+TimeChamber = {
+    Name = "Time Chamber",
+    PlaceId = 1362482151,
+},
+
     BeerusPlanet = {
         Name = "Beerus Planet",
         PlaceId = 3336119605,
