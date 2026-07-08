@@ -1,0 +1,248 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "DBR Automation Hub",
+   LoadingTitle = "Rayfield Client Suite",
+   LoadingSubtitle = "by Sirius",
+   ConfigurationSaving = {
+      Enabled = true,
+      Folder = "DBR_Automation_Data", 
+      KeySystem = false
+   },
+   KeySystem = false 
+})
+
+local CombatTab = Window:CreateTab("Combat Options", 4483362458) 
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+_G.DefenseMacroActive = false
+_G.KiBlastMacroActive = false
+_G.CombatMacroActive = false
+
+-- HARDWARE INTERCEPTOR PACKET FILTER
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if _G.DefenseMacroActive or _G.KiBlastMacroActive or _G.CombatMacroActive then
+        if input.KeyCode == Enum.KeyCode.R or input.KeyCode == Enum.KeyCode.C or input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.E then
+            return
+        end
+    end
+end)
+
+local function getStateFolder()
+    local player = Players.LocalPlayer
+    local folder = workspace:FindFirstChild("DDanTVDJ") or workspace:FindFirstChild(player.Name)
+    return folder and folder:FindFirstChild("State")
+end
+
+-- CHARGE SETTINGS (RAW INTEGER VALUES)
+local CHARGE_THRESHOLD = 8    -- Charge when Energy.Value <= 49
+local CHARGE_TARGET = 0.95     -- Stop at 95% of MaxEnergy
+
+-- TOGGLE 1: SMART DEFENSE / AUTO-CHARGE (R)
+CombatTab:CreateToggle({
+   Name = "Smart Defense / Auto-Charge (R)",
+   CurrentValue = false,
+   Flag = "DefenseToggleSave", 
+   Callback = function(Value)
+      _G.DefenseMacroActive = Value
+      
+      if _G.DefenseMacroActive then
+          _G.KiBlastMacroActive = false 
+          _G.CombatMacroActive = false
+          
+          task.spawn(function()
+              while _G.DefenseMacroActive do
+                  local state = getStateFolder()
+                  if not state then task.wait(0.1) continue end
+                  
+                  local energy = state:FindFirstChild("Energy")
+                  local maxEnergy = state:FindFirstChild("MaxEnergy")
+                  local chargingVal = state:FindFirstChild("Charging")
+                  
+                  if not energy or not maxEnergy then task.wait(0.1) continue end
+                  
+                  -- RAW INTEGER: charge when Energy <= 49
+                  if energy.Value <= CHARGE_THRESHOLD then
+                      -- RELEASE R FIRST
+                      VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.R, false, game)
+                      task.wait(0.1)
+                      
+                      -- SET BOOLVALUE FIRST, THEN PRESS C
+                      if chargingVal and chargingVal:IsA("BoolValue") then 
+                          chargingVal.Value = true 
+                      end
+                      task.wait(0.05)
+                      
+                      -- NOW PRESS AND HOLD C
+                      VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
+                      
+                      -- HOLD CHARGE LOOP
+                      while _G.DefenseMacroActive do
+                          local currentState = getStateFolder()
+                          if not currentState then break end
+                          
+                          local currentEnergy = currentState:FindFirstChild("Energy")
+                          local currentMax = currentState:FindFirstChild("MaxEnergy")
+                          if not currentEnergy or not currentMax then break end
+                          
+                          -- Stop at 95% of current max
+                          if currentEnergy.Value >= math.floor(currentMax.Value * CHARGE_TARGET) then
+                              break
+                          end
+                          
+                          -- KEEP HOLDING C
+                          VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
+                          task.wait(0.03)
+                      end
+                      
+                      -- RELEASE C AND DISABLE BOOL
+                      VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+                      if chargingVal and chargingVal:IsA("BoolValue") then 
+                          chargingVal.Value = false 
+                      end
+                      task.wait(0.2)
+                      
+                  else
+                      -- ENOUGH ENERGY: HOLD R
+                      VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+                      VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.R, false, game)
+                      task.wait(0.05)
+                  end
+              end
+              
+              -- CLEANUP
+              VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.R, false, game)
+              VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+          end)
+      end
+   end,
+})
+
+-- TOGGLE 2: SMART KI BLAST / AUTO-CHARGE (Q)
+CombatTab:CreateToggle({
+   Name = "Smart Ki Blast / Auto-Charge (Q)",
+   CurrentValue = false,
+   Flag = "KiBlastToggleSave", 
+   Callback = function(Value)
+      _G.KiBlastMacroActive = Value
+      
+      if _G.KiBlastMacroActive then
+          _G.DefenseMacroActive = false 
+          _G.CombatMacroActive = false
+          
+          task.spawn(function()
+              while _G.KiBlastMacroActive do
+                  local state = getStateFolder()
+                  if not state then task.wait(0.1) continue end
+                  
+                  local energy = state:FindFirstChild("Energy")
+                  local maxEnergy = state:FindFirstChild("MaxEnergy")
+                  local kiBlastVal = state:FindFirstChild("KiBlast")
+                  local chargingVal = state:FindFirstChild("Charging")
+                  
+                  if not energy or not maxEnergy then task.wait(0.1) continue end
+                  
+                  -- RAW INTEGER: charge when Energy <= 49
+                  if energy.Value <= CHARGE_THRESHOLD then
+                      -- RELEASE Q AND DISABLE KIBLAST
+                      VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
+                      if kiBlastVal and kiBlastVal:IsA("BoolValue") then 
+                          kiBlastVal.Value = false 
+                      end
+                      task.wait(0.1)
+                      
+                      -- SET BOOLVALUE FIRST, THEN PRESS C
+                      if chargingVal and chargingVal:IsA("BoolValue") then 
+                          chargingVal.Value = true 
+                      end
+                      task.wait(0.05)
+                      
+                      -- NOW PRESS AND HOLD C
+                      VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
+                      
+                      -- HOLD CHARGE LOOP
+                      while _G.KiBlastMacroActive do
+                          local currentState = getStateFolder()
+                          if not currentState then break end
+                          
+                          local currentEnergy = currentState:FindFirstChild("Energy")
+                          local currentMax = currentState:FindFirstChild("MaxEnergy")
+                          if not currentEnergy or not currentMax then break end
+                          
+                          -- Stop at 95% of current max
+                          if currentEnergy.Value >= math.floor(currentMax.Value * CHARGE_TARGET) then
+                              break
+                          end
+                          
+                          -- KEEP HOLDING C
+                          VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
+                          task.wait(0.03)
+                      end
+                      
+                      -- RELEASE C AND DISABLE BOOL
+                      VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+                      if chargingVal and chargingVal:IsA("BoolValue") then 
+                          chargingVal.Value = false 
+                      end
+                      task.wait(0.2)
+                      
+                  else
+                      -- ENOUGH ENERGY: HOLD Q
+                      VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+                      VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Q, false, game)
+                      if kiBlastVal and kiBlastVal:IsA("BoolValue") then 
+                          kiBlastVal.Value = true 
+                      end
+                      task.wait(0.05)
+                  end
+              end
+              
+              -- CLEANUP
+              VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
+              VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+              local state = getStateFolder()
+              if state and state:FindFirstChild("KiBlast") then 
+                  state.KiBlast.Value = false 
+              end
+          end)
+      end
+   end,
+})
+
+-- TOGGLE 3: SMART INFINITE COMBAT (E KEY)
+CombatTab:CreateToggle({
+   Name = "Infinite Combat / Auto-Attack (E)",
+   CurrentValue = false,
+   Flag = "CombatToggleSave", 
+   Callback = function(Value)
+      _G.CombatMacroActive = Value
+      
+      if _G.CombatMacroActive then
+          _G.DefenseMacroActive = false 
+          _G.KiBlastMacroActive = false
+          
+          task.spawn(function()
+              while _G.CombatMacroActive do
+                  local state = getStateFolder()
+                  if state then
+                      local combatVal = state:FindFirstChild("Combat")
+                      if combatVal and combatVal:IsA("BoolValue") then 
+                          combatVal.Value = true 
+                      end
+                      VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+                  end
+                  task.wait(0.05) 
+              end
+              VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+              local state = getStateFolder()
+              if state and state:FindFirstChild("Combat") then 
+                  state.Combat.Value = false 
+              end
+          end)
+      end
+   end,
+})
+
+Rayfield:LoadConfiguration()
