@@ -1,10 +1,9 @@
--- STRICT REPOSITORY SOURCE LINK
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "DBR Automation Hub",
-   LoadingTitle = "Rayfield Client Suite",
-   LoadingSubtitle = "by Sirius",
+   Name = "7's DBR Hub",
+   LoadingTitle = "Loading. . .",
+   LoadingSubtitle = "by 7Sain",
    ConfigurationSaving = {
       Enabled = true,
       Folder = "DBR_Automation_Data", 
@@ -17,6 +16,7 @@ local Window = Rayfield:CreateWindow({
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -30,11 +30,22 @@ end
 _G.DefenseMacroActive = false
 _G.KiBlastMacroActive = false
 _G.CombatMacroActive = false
-_G.AutoRebirthActive = false
+_G.AutoTrainActive = false
 
--- HARDWARE INTERCEPTOR PACKET FILTER
+-- SELF-REJOIN
+local scriptSource = [[
+    repeat task.wait() until game:IsLoaded()
+    repeat task.wait() until game.Players.LocalPlayer.Character
+    loadstring(game:HttpGet('https://raw.githubusercontent.com/Xerus3/Dragon-Ball-Rage/refs/heads/main/hub'))()
+]]
+
+if queue_on_teleport then
+    queue_on_teleport(scriptSource)
+end
+
+-- HARDWARE INTERCEPTOR
 UserInputService.InputEnded:Connect(function(input, gameProcessed)
-    if _G.DefenseMacroActive or _G.KiBlastMacroActive or _G.CombatMacroActive then
+    if _G.DefenseMacroActive or _G.KiBlastMacroActive or _G.CombatMacroActive or _G.AutoTrainActive then
         if input.KeyCode == Enum.KeyCode.R or input.KeyCode == Enum.KeyCode.C or input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.E then
             return
         end
@@ -46,16 +57,16 @@ local function getStateFolder()
     return folder and folder:FindFirstChild("State")
 end
 
--- CHARGE SETTINGS
-local CHARGE_THRESHOLD = 49
+local CHARGE_THRESHOLD = 20
 local CHARGE_TARGET = 0.95
+local STALL_TIMEOUT = 5
 
--- NUMBER FORMATTER: 77000000 -> 77m
 local function FormatNumber(num)
+    num = math.floor(num)
     if num >= 1000000000 then
         return string.format("%.1fb", num / 1000000000)
     elseif num >= 1000000 then
-        return string.format("%.0fm", num / 1000000)
+        return string.format("%.1fm", num / 1000000)
     elseif num >= 1000 then
         return string.format("%.0fk", num / 1000)
     else
@@ -63,19 +74,120 @@ local function FormatNumber(num)
     end
 end
 
--- ============================================
+-- FOCUS DETECTION
+local IsWindowFocused = true
+UserInputService.WindowFocusReleased:Connect(function() IsWindowFocused = false end)
+UserInputService.WindowFocused:Connect(function() IsWindowFocused = true end)
+
+-- INPUT HELPERS
+local function PressKey(keyCode)
+    if not IsWindowFocused then
+        VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+    else
+        for i = 1, 3 do
+            VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+            task.wait(0.016)
+            VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+            task.wait(0.016)
+        end
+        VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+    end
+end
+
+local function ReleaseKey(keyCode)
+    VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+end
+
+-- CHARGING MONITOR
+local ChargingMonitorActive = false
+
+local function StartChargingMonitor()
+    if ChargingMonitorActive then return end
+    ChargingMonitorActive = true
+    task.spawn(function()
+        while ChargingMonitorActive do
+            local state = getStateFolder()
+            if state then
+                local chargingVal = state:FindFirstChild("Charging")
+                local energy = state:FindFirstChild("Energy")
+                local maxEnergy = state:FindFirstChild("MaxEnergy")
+                if chargingVal and chargingVal:IsA("BoolValue") and chargingVal.Value == true then
+                    if energy and maxEnergy and energy.Value < math.floor(maxEnergy.Value * CHARGE_TARGET) then
+                        PressKey(Enum.KeyCode.C)
+                    else
+                        ReleaseKey(Enum.KeyCode.C)
+                        chargingVal.Value = false
+                    end
+                end
+            end
+            task.wait(IsWindowFocused and 0.05 or 0.1)
+        end
+    end)
+end
+
+local function StopChargingMonitor()
+    ChargingMonitorActive = false
+end
+
+-- STAT MONITORING
+local StatsTable = {"Agility", "Attack", "Defense", "Ki"}
+
+local function GetPlayerStats()
+    local stats = LocalPlayer:WaitForChild("Stats", 5)
+    if not stats then return nil end
+    local result = {}
+    for _, statName in ipairs(StatsTable) do
+        local stat = stats:FindFirstChild(statName)
+        result[statName] = stat and stat.Value or 0
+    end
+    return result
+end
+
+local function GetStatMaxCapacity()
+    local stats = LocalPlayer:WaitForChild("Stats", 5)
+    if not stats then return nil end
+    local zenkaiBoost = stats:FindFirstChild("ZenkaiBoost")
+    if not zenkaiBoost then return nil end
+    local currentZenkai = zenkaiBoost.Value
+    local required = ZenkaiModule.Requirements[currentZenkai + 1]
+    if not required then return math.huge end
+    return required
+end
+
+local function FindBestStatToTrain()
+    local currentStats = GetPlayerStats()
+    local maxCap = GetStatMaxCapacity()
+    if not currentStats or not maxCap then return nil end
+    local bestStat = nil
+    local lowestRatio = math.huge
+    for _, statName in ipairs(StatsTable) do
+        local ratio = currentStats[statName] / maxCap
+        if ratio < lowestRatio then
+            lowestRatio = ratio
+            bestStat = statName
+        end
+    end
+    return bestStat, lowestRatio
+end
+
+local TrainingKeys = {
+    Agility = Enum.KeyCode.R,
+    Attack = Enum.KeyCode.E,
+    Defense = Enum.KeyCode.R,
+    Ki = Enum.KeyCode.Q
+}
+
+local function GetTrainingKeyForStat(statName)
+    return TrainingKeys[statName]
+end
+
 -- TABS
--- ============================================
-
 local CombatTab = Window:CreateTab("Combat Options", 4483362458)
-local ZenkaiTab = Window:CreateTab("Zenkai / Rebirth", 4483362458)
+local TrainTab = Window:CreateTab("Auto Train", 4483362458)
 
--- ============================================
 -- COMBAT TAB
--- ============================================
-
 CombatTab:CreateToggle({
-   Name = "Smart Defense / Auto-Charge (R)",
+   Name = "Auto Defense",
    CurrentValue = false,
    Flag = "DefenseToggleSave", 
    Callback = function(Value)
@@ -83,6 +195,8 @@ CombatTab:CreateToggle({
       if _G.DefenseMacroActive then
           _G.KiBlastMacroActive = false 
           _G.CombatMacroActive = false
+          _G.AutoTrainActive = false
+          StartChargingMonitor()
           task.spawn(function()
               while _G.DefenseMacroActive do
                   local state = getStateFolder()
@@ -92,11 +206,12 @@ CombatTab:CreateToggle({
                   local chargingVal = state:FindFirstChild("Charging")
                   if not energy or not maxEnergy then task.wait(0.1) continue end
                   if energy.Value <= CHARGE_THRESHOLD then
-                      VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.R, false, game)
+                      ReleaseKey(Enum.KeyCode.R)
                       task.wait(0.05)
-                      VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
-                      task.wait(0.05)
+                      PressKey(Enum.KeyCode.C)
                       if chargingVal and chargingVal:IsA("BoolValue") then chargingVal.Value = true end
+                      local lastEnergy = energy.Value
+                      local lastChange = tick()
                       while _G.DefenseMacroActive do
                           local currentState = getStateFolder()
                           if not currentState then break end
@@ -104,27 +219,58 @@ CombatTab:CreateToggle({
                           local currentMax = currentState:FindFirstChild("MaxEnergy")
                           if not currentEnergy or not currentMax then break end
                           if currentEnergy.Value >= math.floor(currentMax.Value * CHARGE_TARGET) then break end
-                          VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
-                          task.wait(0.05)
+                          if currentEnergy.Value ~= lastEnergy then
+                              lastEnergy = currentEnergy.Value
+                              lastChange = tick()
+                          elseif tick() - lastChange >= STALL_TIMEOUT then
+                              print("[Defense] Charge stall detected, restarting...")
+                              ReleaseKey(Enum.KeyCode.C)
+                              if chargingVal then chargingVal.Value = false end
+                              task.wait(0.2)
+                              break
+                          end
+                          task.wait(0.1)
                       end
-                      VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+                      ReleaseKey(Enum.KeyCode.C)
                       if chargingVal and chargingVal:IsA("BoolValue") then chargingVal.Value = false end
                       task.wait(0.1)
                   else
-                      VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
-                      VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.R, false, game)
-                      task.wait(0.05)
+                      ReleaseKey(Enum.KeyCode.C)
+                      PressKey(Enum.KeyCode.R)
+                      local lastEnergy = energy.Value
+                      local lastChange = tick()
+                      while _G.DefenseMacroActive do
+                          local currentState = getStateFolder()
+                          if not currentState then break end
+                          local currentEnergy = currentState:FindFirstChild("Energy")
+                          if not currentEnergy then break end
+                          if currentEnergy.Value <= CHARGE_THRESHOLD then break end
+                          if currentEnergy.Value ~= lastEnergy then
+                              lastEnergy = currentEnergy.Value
+                              lastChange = tick()
+                          elseif tick() - lastChange >= STALL_TIMEOUT then
+                              print("[Defense] R-stall detected, restarting R...")
+                              ReleaseKey(Enum.KeyCode.R)
+                              task.wait(0.1)
+                              PressKey(Enum.KeyCode.R)
+                              lastChange = tick()
+                          end
+                          task.wait(0.1)
+                      end
                   end
               end
-              VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.R, false, game)
-              VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+              ReleaseKey(Enum.KeyCode.R)
+              ReleaseKey(Enum.KeyCode.C)
+              StopChargingMonitor()
           end)
+      else
+          StopChargingMonitor()
       end
    end,
 })
 
 CombatTab:CreateToggle({
-   Name = "Smart Ki Blast / Auto-Charge (Q)",
+   Name = "Auto Ki",
    CurrentValue = false,
    Flag = "KiBlastToggleSave", 
    Callback = function(Value)
@@ -132,6 +278,8 @@ CombatTab:CreateToggle({
       if _G.KiBlastMacroActive then
           _G.DefenseMacroActive = false 
           _G.CombatMacroActive = false
+          _G.AutoTrainActive = false
+          StartChargingMonitor()
           task.spawn(function()
               while _G.KiBlastMacroActive do
                   local state = getStateFolder()
@@ -142,12 +290,13 @@ CombatTab:CreateToggle({
                   local chargingVal = state:FindFirstChild("Charging")
                   if not energy or not maxEnergy then task.wait(0.1) continue end
                   if energy.Value <= CHARGE_THRESHOLD then
-                      VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
+                      ReleaseKey(Enum.KeyCode.Q)
                       if kiBlastVal and kiBlastVal:IsA("BoolValue") then kiBlastVal.Value = false end
                       task.wait(0.05)
-                      VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
-                      task.wait(0.05)
+                      PressKey(Enum.KeyCode.C)
                       if chargingVal and chargingVal:IsA("BoolValue") then chargingVal.Value = true end
+                      local lastEnergy = energy.Value
+                      local lastChange = tick()
                       while _G.KiBlastMacroActive do
                           local currentState = getStateFolder()
                           if not currentState then break end
@@ -155,30 +304,63 @@ CombatTab:CreateToggle({
                           local currentMax = currentState:FindFirstChild("MaxEnergy")
                           if not currentEnergy or not currentMax then break end
                           if currentEnergy.Value >= math.floor(currentMax.Value * CHARGE_TARGET) then break end
-                          VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
-                          task.wait(0.05)
+                          if currentEnergy.Value ~= lastEnergy then
+                              lastEnergy = currentEnergy.Value
+                              lastChange = tick()
+                          elseif tick() - lastChange >= STALL_TIMEOUT then
+                              print("[Ki] Charge stall detected, restarting...")
+                              ReleaseKey(Enum.KeyCode.C)
+                              if chargingVal then chargingVal.Value = false end
+                              task.wait(0.2)
+                              break
+                          end
+                          task.wait(0.1)
                       end
-                      VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+                      ReleaseKey(Enum.KeyCode.C)
                       if chargingVal and chargingVal:IsA("BoolValue") then chargingVal.Value = false end
                       task.wait(0.1)
                   else
-                      VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
-                      VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Q, false, game)
+                      ReleaseKey(Enum.KeyCode.C)
+                      PressKey(Enum.KeyCode.Q)
                       if kiBlastVal and kiBlastVal:IsA("BoolValue") then kiBlastVal.Value = true end
-                      task.wait(0.05)
+                      local lastEnergy = energy.Value
+                      local lastChange = tick()
+                      while _G.KiBlastMacroActive do
+                          local currentState = getStateFolder()
+                          if not currentState then break end
+                          local currentEnergy = currentState:FindFirstChild("Energy")
+                          if not currentEnergy then break end
+                          if currentEnergy.Value <= CHARGE_THRESHOLD then break end
+                          if currentEnergy.Value ~= lastEnergy then
+                              lastEnergy = currentEnergy.Value
+                              lastChange = tick()
+                          elseif tick() - lastChange >= STALL_TIMEOUT then
+                              print("[Ki] Q-stall detected, restarting Q...")
+                              ReleaseKey(Enum.KeyCode.Q)
+                              if kiBlastVal then kiBlastVal.Value = false end
+                              task.wait(0.1)
+                              PressKey(Enum.KeyCode.Q)
+                              if kiBlastVal then kiBlastVal.Value = true end
+                              lastChange = tick()
+                          end
+                          task.wait(0.1)
+                      end
                   end
               end
-              VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
-              VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
+              ReleaseKey(Enum.KeyCode.Q)
+              ReleaseKey(Enum.KeyCode.C)
               local state = getStateFolder()
               if state and state:FindFirstChild("KiBlast") then state.KiBlast.Value = false end
+              StopChargingMonitor()
           end)
+      else
+          StopChargingMonitor()
       end
    end,
 })
 
 CombatTab:CreateToggle({
-   Name = "Infinite Combat / Auto-Attack (E)",
+   Name = "Auto Attack",
    CurrentValue = false,
    Flag = "CombatToggleSave", 
    Callback = function(Value)
@@ -186,6 +368,8 @@ CombatTab:CreateToggle({
       if _G.CombatMacroActive then
           _G.DefenseMacroActive = false 
           _G.KiBlastMacroActive = false
+          _G.AutoTrainActive = false
+          StopChargingMonitor()
           task.spawn(function()
               while _G.CombatMacroActive do
                   local state = getStateFolder()
@@ -204,112 +388,275 @@ CombatTab:CreateToggle({
    end,
 })
 
--- ============================================
--- ZENKAI TAB
--- ============================================
+-- AUTO TRAIN TAB
+local ZenkaiLevelLabel = TrainTab:CreateLabel("Zenkai: --/50")
+local AgiAtkLabel = TrainTab:CreateLabel("Agility: -- | Attack: --")
+local DefKiLabel = TrainTab:CreateLabel("Defense: -- | Ki: --")
+local CurrentTrainStatLabel = TrainTab:CreateLabel("Current Training: --")
+local TrainStatusLabel = TrainTab:CreateLabel("Status: Idle")
 
--- ZENKAI LEVEL LABEL
-local ZenkaiLevelLabel = ZenkaiTab:CreateLabel("Zenkai: --/50")
-
--- INDIVIDUAL STAT LABELS
-local AttackLabel = ZenkaiTab:CreateLabel("Attack: --")
-local AgilityLabel = ZenkaiTab:CreateLabel("Agility: --")
-local DefenseLabel = ZenkaiTab:CreateLabel("Defense: --")
-local KiLabel = ZenkaiTab:CreateLabel("Ki: --")
-
--- REBIRTH REQUIREMENT LABEL
-local RebirthReqLabel = ZenkaiTab:CreateLabel("Rebirth Req: --")
-
--- UPDATE ALL LABELS
-local function UpdateZenkaiDisplay()
+local function UpdateStatsDisplay()
     local currentZenkai = ZenkaiModule.GetCurrentZenkai()
-    local required = ZenkaiModule.Requirements[currentZenkai]
+    local required = ZenkaiModule.Requirements[currentZenkai + 1]
     local stats = ZenkaiModule.GetCurrentStats()
     
     ZenkaiLevelLabel:Set("Zenkai " .. currentZenkai .. "/50")
     
     if required then
-        AttackLabel:Set(FormatNumber(stats.Attack) .. "/" .. FormatNumber(required) .. " Attack")
-        AgilityLabel:Set(FormatNumber(stats.Agility) .. "/" .. FormatNumber(required) .. " Agility")
-        DefenseLabel:Set(FormatNumber(stats.Defense) .. "/" .. FormatNumber(required) .. " Defense")
-        KiLabel:Set(FormatNumber(stats.Ki) .. "/" .. FormatNumber(required) .. " Ki")
-        RebirthReqLabel:Set("Need " .. FormatNumber(required) .. " all stats to rebirth")
+        AgiAtkLabel:Set(string.format(
+            "Agility: %s/%s | Attack: %s/%s",
+            FormatNumber(stats.Agility), FormatNumber(required),
+            FormatNumber(stats.Attack), FormatNumber(required)
+        ))
+        DefKiLabel:Set(string.format(
+            "Defense: %s/%s | Ki: %s/%s",
+            FormatNumber(stats.Defense), FormatNumber(required),
+            FormatNumber(stats.Ki), FormatNumber(required)
+        ))
     else
-        AttackLabel:Set(FormatNumber(stats.Attack) .. " Attack")
-        AgilityLabel:Set(FormatNumber(stats.Agility) .. " Agility")
-        DefenseLabel:Set(FormatNumber(stats.Defense) .. " Defense")
-        KiLabel:Set(FormatNumber(stats.Ki) .. " Ki")
-        RebirthReqLabel:Set("MAX ZENKAI")
+        AgiAtkLabel:Set(string.format(
+            "Agility: %s | Attack: %s",
+            FormatNumber(stats.Agility),
+            FormatNumber(stats.Attack)
+        ))
+        DefKiLabel:Set(string.format(
+            "Defense: %s | Ki: %s",
+            FormatNumber(stats.Defense),
+            FormatNumber(stats.Ki)
+        ))
     end
 end
 
--- AUTO-UPDATE LOOP
 task.spawn(function()
     while true do
-        UpdateZenkaiDisplay()
+        UpdateStatsDisplay()
         task.wait(1)
     end
 end)
 
--- AUTO REBIRTH TOGGLE
-ZenkaiTab:CreateToggle({
-   Name = "Auto Rebirth",
-   CurrentValue = false,
-   Flag = "AutoRebirthSave",
-   Callback = function(Value)
-      _G.AutoRebirthActive = Value
-      if _G.AutoRebirthActive then
-          task.spawn(function()
-              while _G.AutoRebirthActive do
-                  local canRebirth, currentZenkai, required, failStat, failValue = ZenkaiModule.CanRebirth()
-                  if canRebirth then
-                      local success, message = ZenkaiModule.AttemptRebirth()
-                      print("[AutoRebirth] " .. message)
-                      if success then
-                          local oldZenkai = currentZenkai
-                          local timeout = 0
-                          repeat
-                              task.wait(0.5)
-                              timeout = timeout + 0.5
-                          until ZenkaiModule.GetCurrentZenkai() > oldZenkai or timeout >= 10
-                          if timeout >= 10 then
-                              warn("[AutoRebirth] Rebirth may have failed")
-                          end
-                      end
-                  else
-                      if failStat == "MaxZenkai" then
-                          print("[AutoRebirth] Max Zenkai reached")
-                          _G.AutoRebirthActive = false
-                          break
-                      end
-                  end
-                  task.wait(2)
-              end
-          end)
-      end
-   end,
+TrainTab:CreateToggle({
+    Name = "Auto Train (Smart Switch)",
+    CurrentValue = false,
+    Flag = "AutoTrainSave",
+    Callback = function(Value)
+        _G.AutoTrainActive = Value
+        if _G.AutoTrainActive then
+            _G.DefenseMacroActive = false
+            _G.KiBlastMacroActive = false
+            _G.CombatMacroActive = false
+            StartChargingMonitor()
+            task.spawn(function()
+                local currentTrainKey = nil
+                local currentStat = nil
+                while _G.AutoTrainActive do
+                    local bestStat, ratio = FindBestStatToTrain()
+                    if bestStat then
+                        if currentStat ~= bestStat or not currentTrainKey then
+                            if currentTrainKey then
+                                ReleaseKey(currentTrainKey)
+                                task.wait(0.1)
+                            end
+                            currentStat = bestStat
+                            currentTrainKey = GetTrainingKeyForStat(bestStat)
+                            CurrentTrainStatLabel:Set("Current Training: " .. bestStat)
+                            TrainStatusLabel:Set("Status: Training " .. bestStat .. " (" .. math.floor(ratio * 100) .. "%)")
+                        end
+                        UpdateStatsDisplay()
+                        local state = getStateFolder()
+                        if state then
+                            local energy = state:FindFirstChild("Energy")
+                            local maxEnergy = state:FindFirstChild("MaxEnergy")
+                            local chargingVal = state:FindFirstChild("Charging")
+                            if energy and maxEnergy then
+                                if energy.Value <= CHARGE_THRESHOLD then
+                                    ReleaseKey(currentTrainKey)
+                                    task.wait(0.05)
+                                    PressKey(Enum.KeyCode.C)
+                                    if chargingVal and chargingVal:IsA("BoolValue") then chargingVal.Value = true end
+                                    local lastEnergy = energy.Value
+                                    local lastChange = tick()
+                                    while _G.AutoTrainActive do
+                                        local currentState = getStateFolder()
+                                        if not currentState then break end
+                                        local currentEnergy = currentState:FindFirstChild("Energy")
+                                        local currentMax = currentState:FindFirstChild("MaxEnergy")
+                                        if not currentEnergy or not currentMax then break end
+                                        if currentEnergy.Value >= math.floor(currentMax.Value * CHARGE_TARGET) then break end
+                                        if currentEnergy.Value ~= lastEnergy then
+                                            lastEnergy = currentEnergy.Value
+                                            lastChange = tick()
+                                        elseif tick() - lastChange >= STALL_TIMEOUT then
+                                            ReleaseKey(Enum.KeyCode.C)
+                                            if chargingVal then chargingVal.Value = false end
+                                            task.wait(0.2)
+                                            break
+                                        end
+                                        task.wait(0.1)
+                                    end
+                                    ReleaseKey(Enum.KeyCode.C)
+                                    if chargingVal and chargingVal:IsA("BoolValue") then chargingVal.Value = false end
+                                    task.wait(0.1)
+                                else
+                                    ReleaseKey(Enum.KeyCode.C)
+                                    PressKey(currentTrainKey)
+                                end
+                            end
+                        end
+                    else
+                        TrainStatusLabel:Set("Status: Cannot read stats")
+                    end
+                    task.wait(0.5)
+                end
+                if currentTrainKey then ReleaseKey(currentTrainKey) end
+                ReleaseKey(Enum.KeyCode.C)
+                StopChargingMonitor()
+                CurrentTrainStatLabel:Set("Current Training: --")
+                TrainStatusLabel:Set("Status: Idle")
+            end)
+        else
+            StopChargingMonitor()
+        end
+    end,
+})
+-- ============================================
+-- TELEPORT TAB
+-- ============================================
+
+local TeleportTab = Window:CreateTab("Teleports", 4483362458)
+
+-- Load teleport module from GitHub
+local TeleportModule = loadstring(game:HttpGet("https://github.com/Xerus3/Dragon-Ball-Rage/raw/refs/heads/main/Teleports"))()
+if not TeleportModule then
+    error("Failed to load teleport module")
+end
+
+-- WORLD TELEPORT SECTION
+TeleportTab:CreateSection("World Teleport")
+
+local WorldDropdown = TeleportTab:CreateDropdown({
+    Name = "Select World",
+    Options = TeleportModule.GetWorldNames(),
+    CurrentOption = "Earth",
+    Flag = "WorldTeleportSave",
+    Callback = function(Option)
+        -- Selection only, teleport on button
+    end,
 })
 
--- MANUAL REBIRTH BUTTON
-ZenkaiTab:CreateButton({
-   Name = "Rebirth Now",
-   Callback = function()
-      local canRebirth = ZenkaiModule.CanRebirth()
-      if not canRebirth then
-          Rayfield:Notify({
-             Title = "Cannot Rebirth",
-             Content = "Stats not ready",
-             Duration = 3,
-          })
-          return
-      end
-      local success, message = ZenkaiModule.AttemptRebirth()
-      Rayfield:Notify({
-         Title = success and "Rebirth Initiated" or "Rebirth Failed",
-         Content = message,
-         Duration = 3,
-      })
-   end,
+TeleportTab:CreateButton({
+    Name = "Teleport to World",
+    Callback = function()
+        -- FIX: Rayfield dropdown returns a TABLE, get the string value
+        local selected = type(WorldDropdown.CurrentOption) == "table" and WorldDropdown.CurrentOption[1] or WorldDropdown.CurrentOption
+        
+        if not selected or selected == "" then
+            Rayfield:Notify({Title = "Error", Content = "No world selected", Duration = 3})
+            return
+        end
+        
+        Rayfield:Notify({
+            Title = "Teleporting",
+            Content = "Going to " .. tostring(selected) .. "...",
+            Duration = 3,
+        })
+        
+        local success, message = TeleportModule.TeleportToWorld(selected)
+        if not success then
+            Rayfield:Notify({Title = "Teleport Failed", Content = tostring(message), Duration = 5})
+        end
+    end,
 })
+
+-- NPC TELEPORT SECTION
+TeleportTab:CreateSection("NPC Teleport")
+
+-- Get current world for NPC list
+local function GetCurrentWorldKey()
+    local currentPlaceId = game.PlaceId
+    for key, world in pairs(TeleportModule.Worlds) do
+        if world.PlaceId == currentPlaceId then
+            return key
+        end
+    end
+    return nil
+end
+
+local currentWorldKey = GetCurrentWorldKey()
+local npcOptions = currentWorldKey and TeleportModule.GetNPCNames(currentWorldKey) or {"Not in a known world"}
+
+local NPCDropdown = TeleportTab:CreateDropdown({
+    Name = "Select NPC",
+    Options = npcOptions,
+    CurrentOption = npcOptions[1] or "None",
+    Flag = "NPCTeleportSave",
+    Callback = function(Option)
+        -- Selection only
+    end,
+})
+
+-- Refresh NPC list when needed
+TeleportTab:CreateButton({
+    Name = "Refresh NPC List",
+    Callback = function()
+        currentWorldKey = GetCurrentWorldKey()
+        if currentWorldKey then
+            local names = TeleportModule.GetNPCNames(currentWorldKey)
+            NPCDropdown:Refresh(names)
+            Rayfield:Notify({
+                Title = "Refreshed",
+                Content = "Found " .. #names .. " NPCs in " .. TeleportModule.Worlds[currentWorldKey].Name,
+                Duration = 3,
+            })
+        else
+            NPCDropdown:Refresh({"Unknown world"})
+            Rayfield:Notify({
+                Title = "Error",
+                Content = "Current world not in database. Update teleport module.",
+                Duration = 5,
+            })
+        end
+    end,
+})
+
+TeleportTab:CreateButton({
+    Name = "Teleport to NPC",
+    Callback = function()
+        -- FIX: Rayfield dropdown returns a TABLE, get the string value
+        local selected = type(NPCDropdown.CurrentOption) == "table" and NPCDropdown.CurrentOption[1] or NPCDropdown.CurrentOption
+        
+        if not selected or selected == "Not in a known world" or selected == "Unknown world" or selected == "None" then
+            Rayfield:Notify({Title = "Error", Content = "No valid NPC selected", Duration = 3})
+            return
+        end
+        
+        if not currentWorldKey then
+            Rayfield:Notify({Title = "Error", Content = "Cannot determine current world", Duration = 3})
+            return
+        end
+        
+        local success, message = TeleportModule.TeleportToNPC(currentWorldKey, selected)
+        Rayfield:Notify({
+            Title = success and "Success" or "Failed",
+            Content = tostring(message),
+            Duration = 3,
+        })
+    end,
+})
+
+-- WORLD INFO
+TeleportTab:CreateSection("Current World")
+
+local CurrentWorldLabel = TeleportTab:CreateLabel("Current: Unknown")
+
+local function UpdateCurrentWorld()
+    local key = GetCurrentWorldKey()
+    if key and TeleportModule.Worlds[key] then
+        CurrentWorldLabel:Set("Current: " .. TeleportModule.Worlds[key].Name .. " (ID: " .. game.PlaceId .. ")")
+    else
+        CurrentWorldLabel:Set("Current: Unknown (ID: " .. game.PlaceId .. ")")
+    end
+end
+
+UpdateCurrentWorld()
 
 Rayfield:LoadConfiguration()
