@@ -1,1 +1,150 @@
+-- ============================================
+-- DBR TELEPORT MODULE
+-- ============================================
 
+local TeleportModule = {}
+
+-- WORLD IDs
+TeleportModule.Worlds = {
+    Earth = {
+        Name = "Earth",
+        PlaceId = 71315343,
+    },
+    BeerusPlanet = {
+        Name = "Beerus Planet",
+        PlaceId = 3336119605,
+    },
+    Yardrat = {
+        Name = "Yardrat",
+        PlaceId = 144081016,
+    },
+    Hell = {
+        Name = "Hell",
+        PlaceId = 11491305,
+    }
+}
+
+-- NPCs by World
+TeleportModule.NPCs = {
+    Earth = {
+        {Name = "Beast", Position = Vector3.new(924.33, 1042.67, -5075.93)},
+        {Name = "Broly", Position = Vector3.new(-3862.16, 633.63, -1607.63)},
+        {Name = "Carl", Position = Vector3.new(-2913.84, 698.05, 2092.08)},
+        {Name = "Goku", Position = Vector3.new(89.35, 587.33, 788.77)},
+        {Name = "Piccolo", Position = Vector3.new(3406.89, 651.02, -240.60)},
+        {Name = "Saibamen", Position = Vector3.new(-2978.10, 617.37, 1817.82)},
+        {Name = "Tennenman", Position = Vector3.new(3083.61, 638.77, -79.01)},
+        {Name = "Jinkouman", Position = Vector3.new(-1322.33, 499.23, -6182.45)},
+        {Name = "Dracius", Position = Vector3.new(-764.08, 473.93, -3079.99)},
+        {Name = "Training Weights I", Position = Vector3.new(795.66, 1019.52, -5010.69)},
+        {Name = "Title Giver", Position = Vector3.new(-767.66, 473.88, -2988.26)},
+        {Name = "Perfect Slash Shop", Position = Vector3.new(-4108.73, 528.90, -1371.75)},
+        {Name = "Dummy Yamcha", Position = Vector3.new(-2701.53, 549.19, 1822.68)},
+        {Name = "Dendont", Position = Vector3.new(665.28, 511.43, -1872.90)},
+        {Name = "SunGlasses", Position = Vector3.new(-2013.44, 479.40, -6432.05)},
+    },
+    BeerusPlanet = {
+        {Name = "Title Giver", Position = Vector3.new(1303.01, 4494.66, -3875.07)},
+        {Name = "Training Weights II", Position = Vector3.new(1581.53, 3659.47, -3740.76)},
+    },
+    Yardrat = {
+        {Name = "Sonori", Position = Vector3.new(70.46, 250.32, -1091.86)},
+        {Name = "Title Giver", Position = Vector3.new(11.46, 250.30, -1123.46)},
+        {Name = "Yadrats", Position = Vector3.new(183.30, 359.54, -1430.43)},
+    },
+    Hell = {
+        {Name = "Janemba", Position = Vector3.new(4008.61, 699.51, -6463.58)},
+        {Name = "Maz", Position = Vector3.new(7008.37, 1324.08, -2598.65)},
+        {Name = "Guz", Position = Vector3.new(6729.55, 603.96, -5002.76)},
+        {Name = "Gogeta", Position = Vector3.new(4609.52, 684.11, -3233.71)},
+    }
+}
+
+-- Get world names for dropdown
+function TeleportModule.GetWorldNames()
+    local names = {}
+    for key, world in pairs(TeleportModule.Worlds) do
+        table.insert(names, world.Name)
+    end
+    table.sort(names)
+    return names
+end
+
+-- Get world key from name
+function TeleportModule.GetWorldKeyByName(name)
+    for key, world in pairs(TeleportModule.Worlds) do
+        if world.Name == name then
+            return key
+        end
+    end
+    return nil
+end
+
+-- Get NPC names for a world
+function TeleportModule.GetNPCNames(worldKey)
+    local npcs = TeleportModule.NPCs[worldKey]
+    if not npcs then return {} end
+    local names = {}
+    for _, npc in ipairs(npcs) do
+        table.insert(names, npc.Name)
+    end
+    return names
+end
+
+-- Get NPC data
+function TeleportModule.GetNPC(worldKey, npcName)
+    local npcs = TeleportModule.NPCs[worldKey]
+    if not npcs then return nil end
+    for _, npc in ipairs(npcs) do
+        if npc.Name == npcName then
+            return npc
+        end
+    end
+    return nil
+end
+
+-- Teleport to world
+function TeleportModule.TeleportToWorld(worldName)
+    local key = TeleportModule.GetWorldKeyByName(worldName)
+    if not key then
+        return false, "World not found: " .. worldName
+    end
+    
+    local world = TeleportModule.Worlds[key]
+    local TeleportService = game:GetService("TeleportService")
+    local Players = game:GetService("Players")
+    
+    local success, err = pcall(function()
+        TeleportService:Teleport(world.PlaceId, Players.LocalPlayer)
+    end)
+    
+    if success then
+        return true, "Teleporting to " .. world.Name
+    else
+        return false, "Teleport failed: " .. tostring(err)
+    end
+end
+
+-- Teleport to NPC (same world)
+function TeleportModule.TeleportToNPC(worldKey, npcName)
+    local npc = TeleportModule.GetNPC(worldKey, npcName)
+    if not npc then
+        return false, "NPC not found: " .. npcName
+    end
+    
+    local LocalPlayer = game:GetService("Players").LocalPlayer
+    local character = LocalPlayer.Character
+    if not character then
+        return false, "Character not loaded"
+    end
+    
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        return false, "HumanoidRootPart not found"
+    end
+    
+    hrp.CFrame = CFrame.new(npc.Position)
+    return true, "Teleported to " .. npc.Name
+end
+
+return TeleportModule
