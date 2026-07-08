@@ -1,3 +1,4 @@
+-- STRICT REPOSITORY SOURCE LINK
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
@@ -12,14 +13,24 @@ local Window = Rayfield:CreateWindow({
    KeySystem = false 
 })
 
-local CombatTab = Window:CreateTab("Combat Options", 4483362458) 
+-- SERVICES
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
+local LocalPlayer = Players.LocalPlayer
+
+-- LOAD ZENKAI TABLE FROM GITHUB ONLY
+local ZenkaiModule = loadstring(game:HttpGet("https://raw.githubusercontent.com/Xerus3/Dragon-Ball-Rage/refs/heads/main/table"))()
+if not ZenkaiModule then
+    error("Failed to load Zenkai table from GitHub")
+end
+
+-- GLOBAL TOGGLES
 _G.DefenseMacroActive = false
 _G.KiBlastMacroActive = false
 _G.CombatMacroActive = false
+_G.AutoRebirthActive = false
 
 -- HARDWARE INTERCEPTOR PACKET FILTER
 UserInputService.InputEnded:Connect(function(input, gameProcessed)
@@ -31,88 +42,80 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
 end)
 
 local function getStateFolder()
-    local player = Players.LocalPlayer
-    local folder = workspace:FindFirstChild("DDanTVDJ") or workspace:FindFirstChild(player.Name)
+    local folder = workspace:FindFirstChild(LocalPlayer.Name)
     return folder and folder:FindFirstChild("State")
 end
 
--- CHARGE SETTINGS (RAW INTEGER VALUES)
-local CHARGE_THRESHOLD = 8    -- Charge when Energy.Value <= 49
-local CHARGE_TARGET = 0.95     -- Stop at 95% of MaxEnergy
+-- CHARGE SETTINGS
+local CHARGE_THRESHOLD = 49
+local CHARGE_TARGET = 0.95
 
--- TOGGLE 1: SMART DEFENSE / AUTO-CHARGE (R)
+-- NUMBER FORMATTER: 77000000 -> 77m
+local function FormatNumber(num)
+    if num >= 1000000000 then
+        return string.format("%.1fb", num / 1000000000)
+    elseif num >= 1000000 then
+        return string.format("%.0fm", num / 1000000)
+    elseif num >= 1000 then
+        return string.format("%.0fk", num / 1000)
+    else
+        return tostring(num)
+    end
+end
+
+-- ============================================
+-- TABS
+-- ============================================
+
+local CombatTab = Window:CreateTab("Combat Options", 4483362458)
+local ZenkaiTab = Window:CreateTab("Zenkai / Rebirth", 4483362458)
+
+-- ============================================
+-- COMBAT TAB
+-- ============================================
+
 CombatTab:CreateToggle({
    Name = "Smart Defense / Auto-Charge (R)",
    CurrentValue = false,
    Flag = "DefenseToggleSave", 
    Callback = function(Value)
       _G.DefenseMacroActive = Value
-      
       if _G.DefenseMacroActive then
           _G.KiBlastMacroActive = false 
           _G.CombatMacroActive = false
-          
           task.spawn(function()
               while _G.DefenseMacroActive do
                   local state = getStateFolder()
                   if not state then task.wait(0.1) continue end
-                  
                   local energy = state:FindFirstChild("Energy")
                   local maxEnergy = state:FindFirstChild("MaxEnergy")
                   local chargingVal = state:FindFirstChild("Charging")
-                  
                   if not energy or not maxEnergy then task.wait(0.1) continue end
-                  
-                  -- RAW INTEGER: charge when Energy <= 49
                   if energy.Value <= CHARGE_THRESHOLD then
-                      -- RELEASE R FIRST
                       VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.R, false, game)
-                      task.wait(0.1)
-                      
-                      -- SET BOOLVALUE FIRST, THEN PRESS C
-                      if chargingVal and chargingVal:IsA("BoolValue") then 
-                          chargingVal.Value = true 
-                      end
                       task.wait(0.05)
-                      
-                      -- NOW PRESS AND HOLD C
                       VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
-                      
-                      -- HOLD CHARGE LOOP
+                      task.wait(0.05)
+                      if chargingVal and chargingVal:IsA("BoolValue") then chargingVal.Value = true end
                       while _G.DefenseMacroActive do
                           local currentState = getStateFolder()
                           if not currentState then break end
-                          
                           local currentEnergy = currentState:FindFirstChild("Energy")
                           local currentMax = currentState:FindFirstChild("MaxEnergy")
                           if not currentEnergy or not currentMax then break end
-                          
-                          -- Stop at 95% of current max
-                          if currentEnergy.Value >= math.floor(currentMax.Value * CHARGE_TARGET) then
-                              break
-                          end
-                          
-                          -- KEEP HOLDING C
+                          if currentEnergy.Value >= math.floor(currentMax.Value * CHARGE_TARGET) then break end
                           VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
-                          task.wait(0.03)
+                          task.wait(0.05)
                       end
-                      
-                      -- RELEASE C AND DISABLE BOOL
                       VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
-                      if chargingVal and chargingVal:IsA("BoolValue") then 
-                          chargingVal.Value = false 
-                      end
-                      task.wait(0.2)
-                      
+                      if chargingVal and chargingVal:IsA("BoolValue") then chargingVal.Value = false end
+                      task.wait(0.1)
                   else
-                      -- ENOUGH ENERGY: HOLD R
                       VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
                       VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.R, false, game)
                       task.wait(0.05)
                   end
               end
-              
-              -- CLEANUP
               VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.R, false, game)
               VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
           end)
@@ -120,128 +123,192 @@ CombatTab:CreateToggle({
    end,
 })
 
--- TOGGLE 2: SMART KI BLAST / AUTO-CHARGE (Q)
 CombatTab:CreateToggle({
    Name = "Smart Ki Blast / Auto-Charge (Q)",
    CurrentValue = false,
    Flag = "KiBlastToggleSave", 
    Callback = function(Value)
       _G.KiBlastMacroActive = Value
-      
       if _G.KiBlastMacroActive then
           _G.DefenseMacroActive = false 
           _G.CombatMacroActive = false
-          
           task.spawn(function()
               while _G.KiBlastMacroActive do
                   local state = getStateFolder()
                   if not state then task.wait(0.1) continue end
-                  
                   local energy = state:FindFirstChild("Energy")
                   local maxEnergy = state:FindFirstChild("MaxEnergy")
                   local kiBlastVal = state:FindFirstChild("KiBlast")
                   local chargingVal = state:FindFirstChild("Charging")
-                  
                   if not energy or not maxEnergy then task.wait(0.1) continue end
-                  
-                  -- RAW INTEGER: charge when Energy <= 49
                   if energy.Value <= CHARGE_THRESHOLD then
-                      -- RELEASE Q AND DISABLE KIBLAST
                       VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
-                      if kiBlastVal and kiBlastVal:IsA("BoolValue") then 
-                          kiBlastVal.Value = false 
-                      end
-                      task.wait(0.1)
-                      
-                      -- SET BOOLVALUE FIRST, THEN PRESS C
-                      if chargingVal and chargingVal:IsA("BoolValue") then 
-                          chargingVal.Value = true 
-                      end
+                      if kiBlastVal and kiBlastVal:IsA("BoolValue") then kiBlastVal.Value = false end
                       task.wait(0.05)
-                      
-                      -- NOW PRESS AND HOLD C
                       VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
-                      
-                      -- HOLD CHARGE LOOP
+                      task.wait(0.05)
+                      if chargingVal and chargingVal:IsA("BoolValue") then chargingVal.Value = true end
                       while _G.KiBlastMacroActive do
                           local currentState = getStateFolder()
                           if not currentState then break end
-                          
                           local currentEnergy = currentState:FindFirstChild("Energy")
                           local currentMax = currentState:FindFirstChild("MaxEnergy")
                           if not currentEnergy or not currentMax then break end
-                          
-                          -- Stop at 95% of current max
-                          if currentEnergy.Value >= math.floor(currentMax.Value * CHARGE_TARGET) then
-                              break
-                          end
-                          
-                          -- KEEP HOLDING C
+                          if currentEnergy.Value >= math.floor(currentMax.Value * CHARGE_TARGET) then break end
                           VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.C, false, game)
-                          task.wait(0.03)
+                          task.wait(0.05)
                       end
-                      
-                      -- RELEASE C AND DISABLE BOOL
                       VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
-                      if chargingVal and chargingVal:IsA("BoolValue") then 
-                          chargingVal.Value = false 
-                      end
-                      task.wait(0.2)
-                      
+                      if chargingVal and chargingVal:IsA("BoolValue") then chargingVal.Value = false end
+                      task.wait(0.1)
                   else
-                      -- ENOUGH ENERGY: HOLD Q
                       VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
                       VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Q, false, game)
-                      if kiBlastVal and kiBlastVal:IsA("BoolValue") then 
-                          kiBlastVal.Value = true 
-                      end
+                      if kiBlastVal and kiBlastVal:IsA("BoolValue") then kiBlastVal.Value = true end
                       task.wait(0.05)
                   end
               end
-              
-              -- CLEANUP
               VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
               VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.C, false, game)
               local state = getStateFolder()
-              if state and state:FindFirstChild("KiBlast") then 
-                  state.KiBlast.Value = false 
-              end
+              if state and state:FindFirstChild("KiBlast") then state.KiBlast.Value = false end
           end)
       end
    end,
 })
 
--- TOGGLE 3: SMART INFINITE COMBAT (E KEY)
 CombatTab:CreateToggle({
    Name = "Infinite Combat / Auto-Attack (E)",
    CurrentValue = false,
    Flag = "CombatToggleSave", 
    Callback = function(Value)
       _G.CombatMacroActive = Value
-      
       if _G.CombatMacroActive then
           _G.DefenseMacroActive = false 
           _G.KiBlastMacroActive = false
-          
           task.spawn(function()
               while _G.CombatMacroActive do
                   local state = getStateFolder()
                   if state then
                       local combatVal = state:FindFirstChild("Combat")
-                      if combatVal and combatVal:IsA("BoolValue") then 
-                          combatVal.Value = true 
-                      end
+                      if combatVal and combatVal:IsA("BoolValue") then combatVal.Value = true end
                       VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
                   end
                   task.wait(0.05) 
               end
               VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
               local state = getStateFolder()
-              if state and state:FindFirstChild("Combat") then 
-                  state.Combat.Value = false 
+              if state and state:FindFirstChild("Combat") then state.Combat.Value = false end
+          end)
+      end
+   end,
+})
+
+-- ============================================
+-- ZENKAI TAB
+-- ============================================
+
+-- ZENKAI LEVEL LABEL
+local ZenkaiLevelLabel = ZenkaiTab:CreateLabel("Zenkai: --/50")
+
+-- INDIVIDUAL STAT LABELS
+local AttackLabel = ZenkaiTab:CreateLabel("Attack: --")
+local AgilityLabel = ZenkaiTab:CreateLabel("Agility: --")
+local DefenseLabel = ZenkaiTab:CreateLabel("Defense: --")
+local KiLabel = ZenkaiTab:CreateLabel("Ki: --")
+
+-- REBIRTH REQUIREMENT LABEL
+local RebirthReqLabel = ZenkaiTab:CreateLabel("Rebirth Req: --")
+
+-- UPDATE ALL LABELS
+local function UpdateZenkaiDisplay()
+    local currentZenkai = ZenkaiModule.GetCurrentZenkai()
+    local required = ZenkaiModule.Requirements[currentZenkai]
+    local stats = ZenkaiModule.GetCurrentStats()
+    
+    ZenkaiLevelLabel:Set("Zenkai " .. currentZenkai .. "/50")
+    
+    if required then
+        AttackLabel:Set(FormatNumber(stats.Attack) .. "/" .. FormatNumber(required) .. " Attack")
+        AgilityLabel:Set(FormatNumber(stats.Agility) .. "/" .. FormatNumber(required) .. " Agility")
+        DefenseLabel:Set(FormatNumber(stats.Defense) .. "/" .. FormatNumber(required) .. " Defense")
+        KiLabel:Set(FormatNumber(stats.Ki) .. "/" .. FormatNumber(required) .. " Ki")
+        RebirthReqLabel:Set("Need " .. FormatNumber(required) .. " all stats to rebirth")
+    else
+        AttackLabel:Set(FormatNumber(stats.Attack) .. " Attack")
+        AgilityLabel:Set(FormatNumber(stats.Agility) .. " Agility")
+        DefenseLabel:Set(FormatNumber(stats.Defense) .. " Defense")
+        KiLabel:Set(FormatNumber(stats.Ki) .. " Ki")
+        RebirthReqLabel:Set("MAX ZENKAI")
+    end
+end
+
+-- AUTO-UPDATE LOOP
+task.spawn(function()
+    while true do
+        UpdateZenkaiDisplay()
+        task.wait(1)
+    end
+end)
+
+-- AUTO REBIRTH TOGGLE
+ZenkaiTab:CreateToggle({
+   Name = "Auto Rebirth",
+   CurrentValue = false,
+   Flag = "AutoRebirthSave",
+   Callback = function(Value)
+      _G.AutoRebirthActive = Value
+      if _G.AutoRebirthActive then
+          task.spawn(function()
+              while _G.AutoRebirthActive do
+                  local canRebirth, currentZenkai, required, failStat, failValue = ZenkaiModule.CanRebirth()
+                  if canRebirth then
+                      local success, message = ZenkaiModule.AttemptRebirth()
+                      print("[AutoRebirth] " .. message)
+                      if success then
+                          local oldZenkai = currentZenkai
+                          local timeout = 0
+                          repeat
+                              task.wait(0.5)
+                              timeout = timeout + 0.5
+                          until ZenkaiModule.GetCurrentZenkai() > oldZenkai or timeout >= 10
+                          if timeout >= 10 then
+                              warn("[AutoRebirth] Rebirth may have failed")
+                          end
+                      end
+                  else
+                      if failStat == "MaxZenkai" then
+                          print("[AutoRebirth] Max Zenkai reached")
+                          _G.AutoRebirthActive = false
+                          break
+                      end
+                  end
+                  task.wait(2)
               end
           end)
       end
+   end,
+})
+
+-- MANUAL REBIRTH BUTTON
+ZenkaiTab:CreateButton({
+   Name = "Rebirth Now",
+   Callback = function()
+      local canRebirth = ZenkaiModule.CanRebirth()
+      if not canRebirth then
+          Rayfield:Notify({
+             Title = "Cannot Rebirth",
+             Content = "Stats not ready",
+             Duration = 3,
+          })
+          return
+      end
+      local success, message = ZenkaiModule.AttemptRebirth()
+      Rayfield:Notify({
+         Title = success and "Rebirth Initiated" or "Rebirth Failed",
+         Content = message,
+         Duration = 3,
+      })
    end,
 })
 
