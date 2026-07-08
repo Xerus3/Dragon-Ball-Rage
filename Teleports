@@ -29,7 +29,7 @@ TimeChamber = {
     },
     Hell = {
         Name = "Hell",
-        PlaceId = 11491305,
+        PlaceId = 15669378828,
     }
 }
 
