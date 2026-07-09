@@ -1,11 +1,10 @@
 -- ============================================
 -- DBR WEBHOOK MODULE
--- Uses executor's request() to bypass client restrictions
+-- Uses webhook proxy to bypass client restrictions
 -- ============================================
 
 local WebhookModule = {}
 
--- CONFIG
 WebhookModule.Config = {
     WebhookUrl = "",
     TrackStats = {
@@ -25,8 +24,8 @@ WebhookModule.Config = {
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
+local HttpService = game:GetService("HttpService")
 
--- Get current stat value
 function WebhookModule.GetStatValue(statName)
     local stats = LocalPlayer:WaitForChild("Stats", 5)
     if not stats then return nil end
@@ -34,7 +33,7 @@ function WebhookModule.GetStatValue(statName)
     return stat and stat.Value or nil
 end
 
--- Send webhook using executor's request() instead of HttpService
+-- Try multiple methods to send webhook
 function WebhookModule.SendWebhook(title, description, color)
     if not WebhookModule.Config.WebhookUrl or WebhookModule.Config.WebhookUrl == "" then
         return false, "No webhook URL set"
@@ -52,36 +51,74 @@ function WebhookModule.SendWebhook(title, description, color)
         }}
     }
     
-    -- Use executor's request() or syn.request() instead of HttpService
-    local httpRequest = request or syn.request or http_request
+    local body = HttpService:JSONEncode(data)
     
-    if not httpRequest then
-        return false, "No HTTP request function available (executor issue)"
+    -- Method 1: Try executor's request/syn.request
+    local httpRequest = request or syn.request or http_request or fluxus_request
+    
+    if httpRequest then
+        local success, response = pcall(function()
+            return httpRequest({
+                Url = WebhookModule.Config.WebhookUrl,
+                Method = "POST",
+                Headers = {
+                    ["Content-Type"] = "application/json"
+                },
+                Body = body
+            })
+        end)
+        
+        if success and response then
+            local statusCode = response.StatusCode or response.status
+            if statusCode and statusCode >= 200 and statusCode < 300 then
+                return true, "Webhook sent via executor"
+            end
+        end
     end
     
-    local success, response = pcall(function()
-        return httpRequest({
-            Url = WebhookModule.Config.WebhookUrl,
-            Method = "POST",
-            Headers = {
-                ["Content-Type"] = "application/json"
-            },
-            Body = game:GetService("HttpService"):JSONEncode(data)
-        })
+    -- Method 2: Try webhook proxy services
+    local proxyUrls = {
+        "https://hooks.hyra.io/api/webhooks/",      -- Hyra proxy
+        "https://webhook.lewisakura.moe/api/webhooks/", -- Lewisakura proxy
+    }
+    
+    -- Extract webhook ID and token from URL
+    local webhookId, webhookToken = WebhookModule.Config.WebhookUrl:match("discord.com/api/webhooks/(%d+)/(.+)")
+    
+    if webhookId and webhookToken then
+        for _, proxyBase in ipairs(proxyUrls) do
+            local proxyUrl = proxyBase .. webhookId .. "/" .. webhookToken
+            
+            local success, response = pcall(function()
+                return HttpService:PostAsync(
+                    proxyUrl,
+                    body,
+                    Enum.HttpContentType.ApplicationJson
+                )
+            end)
+            
+            if success then
+                return true, "Webhook sent via proxy"
+            end
+        end
+    end
+    
+    -- Method 3: Try direct with HttpService (will likely fail but worth a shot)
+    local success, err = pcall(function()
+        return HttpService:PostAsync(
+            WebhookModule.Config.WebhookUrl,
+            body,
+            Enum.HttpContentType.ApplicationJson
+        )
     end)
     
-    if success and response then
-        if response.StatusCode and response.StatusCode >= 200 and response.StatusCode < 300 then
-            return true, "Webhook sent"
-        else
-            return false, "Webhook failed: " .. (response.StatusMessage or "Unknown error")
-        end
-    else
-        return false, "Webhook failed: " .. tostring(response)
+    if success then
+        return true, "Webhook sent directly"
     end
+    
+    return false, "All methods failed. Last error: " .. tostring(err)
 end
 
--- Start tracking
 function WebhookModule.StartTracking()
     if WebhookModule.Config.Enabled then
         return false, "Already tracking"
