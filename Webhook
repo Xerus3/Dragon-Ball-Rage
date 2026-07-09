@@ -1,6 +1,6 @@
 -- ============================================
 -- DBR WEBHOOK MODULE
--- Track stats and send Discord webhook when target reached
+-- Track multiple stats and send Discord webhook when targets reached
 -- ============================================
 
 local WebhookModule = {}
@@ -8,8 +8,18 @@ local WebhookModule = {}
 -- CONFIG (user sets these)
 WebhookModule.Config = {
     WebhookUrl = "",
-    TrackStat = "Attack", -- Agility, Attack, Defense, Ki
-    TargetValue = 0,
+    TrackStats = { -- Table of stat names to track
+        Agility = false,
+        Attack = false,
+        Defense = false,
+        Ki = false,
+    },
+    TargetValues = { -- Target for each stat
+        Agility = 0,
+        Attack = 0,
+        Defense = 0,
+        Ki = 0,
+    },
     Enabled = false
 }
 
@@ -64,40 +74,95 @@ function WebhookModule.StartTracking()
         return false, "Already tracking"
     end
     
+    -- Validate at least one stat is selected
+    local anySelected = false
+    for _, enabled in pairs(WebhookModule.Config.TrackStats) do
+        if enabled then
+            anySelected = true
+            break
+        end
+    end
+    
+    if not anySelected then
+        return false, "No stats selected to track"
+    end
+    
     WebhookModule.Config.Enabled = true
     
     task.spawn(function()
-        local notified = false
+        local notifiedStats = {} -- Track which stats already notified
         
         while WebhookModule.Config.Enabled do
-            local currentValue = WebhookModule.GetStatValue(WebhookModule.Config.TrackStat)
+            local currentStats = {}
+            local allStatsReady = true
+            local readyStats = {}
+            local pendingStats = {}
             
-            if currentValue then
-                -- Check if target reached
-                if currentValue >= WebhookModule.Config.TargetValue and not notified then
-                    local success, msg = WebhookModule.SendWebhook(
-                        "🎯 Target Reached!",
-                        string.format(
-                            "**%s** has reached the target!\n\nCurrent: **%s**\nTarget: **%s**",
-                            WebhookModule.Config.TrackStat,
-                            tostring(currentValue),
-                            tostring(WebhookModule.Config.TargetValue)
-                        ),
-                        3066993
-                    )
+            -- Check all tracked stats
+            for statName, enabled in pairs(WebhookModule.Config.TrackStats) do
+                if enabled then
+                    local currentValue = WebhookModule.GetStatValue(statName)
+                    local targetValue = WebhookModule.Config.TargetValues[statName] or 0
                     
-                    if success then
-                        notified = true
-                        print("[Webhook] Notification sent for " .. WebhookModule.Config.TrackStat)
-                    else
-                        print("[Webhook] Failed: " .. msg)
+                    if currentValue then
+                        currentStats[statName] = currentValue
+                        
+                        -- Check if target reached
+                        if currentValue >= targetValue then
+                            if not notifiedStats[statName] then
+                                table.insert(readyStats, statName)
+                                notifiedStats[statName] = true
+                            end
+                        else
+                            allStatsReady = false
+                            notifiedStats[statName] = false -- Reset if dropped
+                            table.insert(pendingStats, statName .. ": " .. tostring(currentValue) .. "/" .. tostring(targetValue))
+                        end
+                    end
+                end
+            end
+            
+            -- Send webhook for newly ready stats
+            for _, statName in ipairs(readyStats) do
+                local success, msg = WebhookModule.SendWebhook(
+                    "🎯 " .. statName .. " Target Reached!",
+                    string.format(
+                        "**%s** has reached the target!\n\nCurrent: **%s**\nTarget: **%s**\n\nPending stats:\n%s",
+                        statName,
+                        tostring(currentStats[statName]),
+                        tostring(WebhookModule.Config.TargetValues[statName]),
+                        #pendingStats > 0 and table.concat(pendingStats, "\n") or "All stats ready!"
+                    ),
+                    3066993
+                )
+                
+                if success then
+                    print("[Webhook] Notification sent for " .. statName)
+                else
+                    print("[Webhook] Failed: " .. msg)
+                end
+                
+                task.wait(1) -- Small delay between multiple notifications
+            end
+            
+            -- Send "ALL READY" notification if everything hit target
+            if allStatsReady and #readyStats > 1 then
+                local allStatsList = {}
+                for statName, enabled in pairs(WebhookModule.Config.TrackStats) do
+                    if enabled then
+                        table.insert(allStatsList, statName .. ": " .. tostring(currentStats[statName]))
                     end
                 end
                 
-                -- Reset notification if stat drops below target (e.g. after rebirth)
-                if currentValue < WebhookModule.Config.TargetValue then
-                    notified = false
-                end
+                WebhookModule.SendWebhook(
+                    "✅ ALL STATS READY FOR REBIRTH!",
+                    "All tracked stats have reached their targets!\n\n" .. table.concat(allStatsList, "\n"),
+                    3066993
+                )
+                
+                -- Stop tracking since all are ready
+                WebhookModule.Config.Enabled = false
+                break
             end
             
             task.wait(5) -- Check every 5 seconds
@@ -112,10 +177,10 @@ function WebhookModule.StopTracking()
     return true, "Tracking stopped"
 end
 
-function WebhookModule.UpdateConfig(webhookUrl, trackStat, targetValue)
+function WebhookModule.UpdateConfig(webhookUrl, trackStats, targetValues)
     WebhookModule.Config.WebhookUrl = webhookUrl
-    WebhookModule.Config.TrackStat = trackStat
-    WebhookModule.Config.TargetValue = tonumber(targetValue) or 0
+    WebhookModule.Config.TrackStats = trackStats
+    WebhookModule.Config.TargetValues = targetValues
     return true, "Config updated"
 end
 
