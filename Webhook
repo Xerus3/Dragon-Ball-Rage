@@ -1,20 +1,20 @@
 -- ============================================
 -- DBR WEBHOOK MODULE
--- Track multiple stats and send Discord webhook when targets reached
+-- Uses executor's request() to bypass client restrictions
 -- ============================================
 
 local WebhookModule = {}
 
--- CONFIG (user sets these)
+-- CONFIG
 WebhookModule.Config = {
     WebhookUrl = "",
-    TrackStats = { -- Table of stat names to track
+    TrackStats = {
         Agility = false,
         Attack = false,
         Defense = false,
         Ki = false,
     },
-    TargetValues = { -- Target for each stat
+    TargetValues = {
         Agility = 0,
         Attack = 0,
         Defense = 0,
@@ -25,7 +25,6 @@ WebhookModule.Config = {
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
-local HttpService = game:GetService("HttpService")
 
 -- Get current stat value
 function WebhookModule.GetStatValue(statName)
@@ -35,7 +34,7 @@ function WebhookModule.GetStatValue(statName)
     return stat and stat.Value or nil
 end
 
--- Send webhook
+-- Send webhook using executor's request() instead of HttpService
 function WebhookModule.SendWebhook(title, description, color)
     if not WebhookModule.Config.WebhookUrl or WebhookModule.Config.WebhookUrl == "" then
         return false, "No webhook URL set"
@@ -46,25 +45,39 @@ function WebhookModule.SendWebhook(title, description, color)
             title = title,
             description = description,
             color = color or 65280,
-            timestamp = DateTime.now():ToIsoDate(),
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
             footer = {
                 text = "DBR Stat Tracker | " .. LocalPlayer.Name
             }
         }}
     }
     
-    local success, err = pcall(function()
-        HttpService:PostAsync(
-            WebhookModule.Config.WebhookUrl,
-            HttpService:JSONEncode(data),
-            Enum.HttpContentType.ApplicationJson
-        )
+    -- Use executor's request() or syn.request() instead of HttpService
+    local httpRequest = request or syn.request or http_request
+    
+    if not httpRequest then
+        return false, "No HTTP request function available (executor issue)"
+    end
+    
+    local success, response = pcall(function()
+        return httpRequest({
+            Url = WebhookModule.Config.WebhookUrl,
+            Method = "POST",
+            Headers = {
+                ["Content-Type"] = "application/json"
+            },
+            Body = game:GetService("HttpService"):JSONEncode(data)
+        })
     end)
     
-    if success then
-        return true, "Webhook sent"
+    if success and response then
+        if response.StatusCode and response.StatusCode >= 200 and response.StatusCode < 300 then
+            return true, "Webhook sent"
+        else
+            return false, "Webhook failed: " .. (response.StatusMessage or "Unknown error")
+        end
     else
-        return false, "Webhook failed: " .. tostring(err)
+        return false, "Webhook failed: " .. tostring(response)
     end
 end
 
@@ -74,7 +87,6 @@ function WebhookModule.StartTracking()
         return false, "Already tracking"
     end
     
-    -- Validate at least one stat is selected
     local anySelected = false
     for _, enabled in pairs(WebhookModule.Config.TrackStats) do
         if enabled then
@@ -90,7 +102,7 @@ function WebhookModule.StartTracking()
     WebhookModule.Config.Enabled = true
     
     task.spawn(function()
-        local notifiedStats = {} -- Track which stats already notified
+        local notifiedStats = {}
         
         while WebhookModule.Config.Enabled do
             local currentStats = {}
@@ -98,7 +110,6 @@ function WebhookModule.StartTracking()
             local readyStats = {}
             local pendingStats = {}
             
-            -- Check all tracked stats
             for statName, enabled in pairs(WebhookModule.Config.TrackStats) do
                 if enabled then
                     local currentValue = WebhookModule.GetStatValue(statName)
@@ -107,7 +118,6 @@ function WebhookModule.StartTracking()
                     if currentValue then
                         currentStats[statName] = currentValue
                         
-                        -- Check if target reached
                         if currentValue >= targetValue then
                             if not notifiedStats[statName] then
                                 table.insert(readyStats, statName)
@@ -115,14 +125,13 @@ function WebhookModule.StartTracking()
                             end
                         else
                             allStatsReady = false
-                            notifiedStats[statName] = false -- Reset if dropped
+                            notifiedStats[statName] = false
                             table.insert(pendingStats, statName .. ": " .. tostring(currentValue) .. "/" .. tostring(targetValue))
                         end
                     end
                 end
             end
             
-            -- Send webhook for newly ready stats
             for _, statName in ipairs(readyStats) do
                 local success, msg = WebhookModule.SendWebhook(
                     "🎯 " .. statName .. " Target Reached!",
@@ -142,10 +151,9 @@ function WebhookModule.StartTracking()
                     print("[Webhook] Failed: " .. msg)
                 end
                 
-                task.wait(1) -- Small delay between multiple notifications
+                task.wait(1)
             end
             
-            -- Send "ALL READY" notification if everything hit target
             if allStatsReady and #readyStats > 1 then
                 local allStatsList = {}
                 for statName, enabled in pairs(WebhookModule.Config.TrackStats) do
@@ -160,12 +168,11 @@ function WebhookModule.StartTracking()
                     3066993
                 )
                 
-                -- Stop tracking since all are ready
                 WebhookModule.Config.Enabled = false
                 break
             end
             
-            task.wait(5) -- Check every 5 seconds
+            task.wait(5)
         end
     end)
     
