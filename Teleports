@@ -18,6 +18,10 @@ TimeChamber = {
     Name = "Time Chamber",
     PlaceId = 1362482151,
 },
+Plushenza = {
+    Name = "Plushenza",
+    PlaceId = 105326626626130,
+},
 
     BeerusPlanet = {
         Name = "Beerus Planet",
